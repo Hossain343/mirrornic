@@ -116,10 +116,14 @@ pub fn start(name: &str, route: &str, exit: Option<u32>) -> Result<Engine, Strin
         std::fs::write(&path, DLL).map_err(|e| e.to_string())?;
     }
     let wt = unsafe { wintun::load_from_path(&path) }.map_err(|e| e.to_string())?;
-    let adapter = wintun::Adapter::create(&wt, name, "MirrorNIC", None).map_err(|e| e.to_string())?;
-    let session = adapter
-        .start_session(wintun::MAX_RING_CAPACITY)
-        .map_err(|e| e.to_string())?;
+    let adapter = Arc::new(
+        wintun::Adapter::create(&wt, name, "MirrorNIC", None).map_err(|e| e.to_string())?,
+    );
+    let session = Arc::new(
+        adapter
+            .start_session(wintun::MAX_RING_CAPACITY)
+            .map_err(|e| e.to_string())?,
+    );
 
     configure(name, route);
 
@@ -183,7 +187,7 @@ async fn run(mut rx: mpsc::Receiver<Vec<u8>>, session: Arc<wintun::Session>, idx
     });
     tokio::spawn(async move {
         while let Some(Ok(p)) = stream.next().await {
-            if let Ok(mut k) = session.allocate_packet(p.len() as u16) {
+            if let Ok(mut k) = session.allocate_send_packet(p.len() as u16) {
                 k.bytes_mut().copy_from_slice(&p);
                 session.send_packet(k);
             }
@@ -226,7 +230,7 @@ async fn udp_loop(udp: netstack_smoltcp::UdpSocket, idx: u32) {
         }
     });
     let mut flows: HashMap<(SocketAddr, SocketAddr), mpsc::UnboundedSender<Vec<u8>>> = HashMap::new();
-    while let Some((data, src, dst)) = rd.recv().await {
+    while let Some((data, src, dst)) = rd.next().await {
         let key = (src, dst);
         let mut data = data;
         if let Some(t) = flows.get(&key) {
@@ -335,7 +339,7 @@ fn icmp_forward(pkt: Vec<u8>, session: Arc<wintun::Session>, idx: u32) {
         out[10] = (c >> 8) as u8;
         out[11] = c as u8;
         out[20..].copy_from_slice(payload);
-        if let Ok(mut k) = session.allocate_packet(total as u16) {
+        if let Ok(mut k) = session.allocate_send_packet(total as u16) {
             k.bytes_mut().copy_from_slice(&out);
             session.send_packet(k);
         }
