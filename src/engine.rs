@@ -116,9 +116,8 @@ pub fn start(name: &str, route: &str, exit: Option<u32>) -> Result<Engine, Strin
         std::fs::write(&path, DLL).map_err(|e| e.to_string())?;
     }
     let wt = unsafe { wintun::load_from_path(&path) }.map_err(|e| e.to_string())?;
-    let adapter = Arc::new(
-        wintun::Adapter::create(&wt, name, "MirrorNIC", None).map_err(|e| e.to_string())?,
-    );
+    // Adapter::create already returns Arc<Adapter>
+    let adapter = wintun::Adapter::create(&wt, name, "MirrorNIC", None).map_err(|e| e.to_string())?;
     let session = Arc::new(
         adapter
             .start_session(wintun::MAX_RING_CAPACITY)
