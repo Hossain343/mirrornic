@@ -25,9 +25,10 @@ ICMP echo (ping) is forwarded with a dedicated path so connectivity checks work.
 |--------|--------|
 | Virtual NIC | Wintun driver, no NDIS intermediate driver required |
 | Selective routing | Comma-separated prefixes (e.g. `0.0.0.0/0` or `1.2.3.0/24,8.8.8.8/32`) |
-| Exit interface | Auto (best route to 8.8.8.8) or pick any interface by index |
+| Exit interface | Auto (physical NIC only — VPNs/tunnels are never auto-picked) or pick a NIC yourself |
+| VPN bypass | Exit sockets are locked to the physical NIC with `IP_UNICAST_IF` + source-IP bind, so a VPN that owns the default route cannot pull them into its tunnel |
 | TCP / UDP / ICMP | Full relay through userspace stack + forced interface binding |
-| Small GUI | egui/eframe — ON/OFF, name, routes, exit NIC, public IP test |
+| Small GUI | egui/eframe — ON/OFF, name, routes, exit NIC, dual public-IP test (direct vs system) |
 | Admin-aware | Uses elevated `netsh` under the hood; run as Administrator |
 | Release-optimized | LTO, strip, `panic=abort` for a compact binary |
 
@@ -90,7 +91,10 @@ GitHub Actions workflow `build-windows` produces a downloadable artifact named `
 2. Optionally change **Adapter name** and **Route** (comma-separated prefixes).
 3. Choose **Exit interface** (Auto or a specific NIC) → Refresh if needed.
 4. Click **ON**. The virtual adapter appears; routes are installed.
-5. Use **Test** to fetch your public IP (via the current path) as a quick sanity check.
+5. Use **Test** for a dual public-IP check: `direct` is fetched through the
+   same double-locked socket the relay uses (the real egress path), `system`
+   is what Windows would do by default (the VPN, when one is up). Two
+   different IPs = the bypass is working.
 6. Click **OFF** or close the app to tear down the session and clean up.
 
 ---
@@ -126,7 +130,21 @@ GitHub Actions workflow `build-windows` produces a downloadable artifact named `
 
 - Virtual IP: `10.66.0.2/24` (hardcoded in `configure`).
 - DNS set to `1.1.1.1` and `8.8.8.8` on the virtual interface.
-- Outbound sockets are bound to the chosen interface index via `IP_UNICAST_IF` (level `IPPROTO_IP`, optname `31`).
+- Outbound sockets are locked to the exit NIC two ways:
+  - `IP_UNICAST_IF` (level `IPPROTO_IP`, optname `31`, index in **network byte
+    order**) — overrides the routing table for that socket, which is what makes
+    the traffic leave through the physical NIC even when a VPN (Hotspot Shield
+    etc.) owns the system default route;
+  - a source-IP bind to the NIC's own address (source binding alone does not
+    constrain routing on multi-homed Windows, the socket option does).
+- Exit auto-detection uses `GetAdaptersAddresses` and only considers physical
+  adapters (IF_TYPE_ETHERNET / IF_TYPE_IEEE80211, up, has IPv4 + gateway).
+  Tunnel/virtual adapters (`IF_TYPE_TUNNEL`, Hyper-V/VMware/VBox, Wintun,
+  "Hotspot Shield", …) are tagged `[VPN/virtual]` in the list and rejected if
+  selected — the old `GetBestInterface(8.8.8.8)` heuristic followed the route
+  table straight into the VPN's tunnel adapter.
+- MirrorNIC's default route is installed with route metric `0` (fallback `1`,
+  interface metric `0`, fallback `1`) so it outranks a VPN's default route.
 - TCP connections get a 15s connect timeout; UDP flows idle-timeout after 60s.
 - ICMP echo-request is rewritten and answered by a small blocking helper so the virtual path stays pingable.
 
