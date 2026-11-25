@@ -290,7 +290,7 @@ pub fn list_ifaces() -> Vec<(u32, String)> {
         .into_iter()
         .filter(|a| a.idx != 0 && !is_loopback(a))
         .map(|a| {
-            let tag = if is_physical(a) { "" } else { " [VPN/virtual]" };
+            let tag = if is_physical(&a) { "" } else { " [VPN/virtual]" };
             (a.idx, format!("{}{}", a.name, tag))
         })
         .collect()
@@ -453,7 +453,7 @@ pub fn start(name: &str, route: &str, exit: Option<u32>) -> Result<Engine, Strin
     let (ex, note) = resolve_exit(exit)?;
 
     let path = std::env::temp_dir().join("mirrornic_wintun.dll");
-    if std::metadata(&path).map(|m| m.len() != DLL.len() as u64).unwrap_or(true) {
+    if std::fs::metadata(&path).map(|m| m.len() != DLL.len() as u64).unwrap_or(true) {
         std::fs::write(&path, DLL).map_err(|e| e.to_string())?;
     }
     let wt = unsafe { wintun::load_from_path(&path) }.map_err(|e| e.to_string())?;
