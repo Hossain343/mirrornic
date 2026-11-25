@@ -17,7 +17,16 @@ jobs:
           New-Item -ItemType Directory -Force assets | Out-Null
           Copy-Item wt/wintun/bin/amd64/wintun.dll assets/wintun.dll
       - name: Build
-        run: cargo build --release
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo build --release 2>&1 | tee build.log
+      - name: Upload build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
       - uses: actions/upload-artifact@v4
         with:
           name: mirrornic
