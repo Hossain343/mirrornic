@@ -5,6 +5,9 @@ on:
 jobs:
   win:
     runs-on: windows-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -27,6 +30,18 @@ jobs:
         with:
           name: build-log
           path: build.log
+      - name: Publish build errors as check-run
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          touch build.log
+          TEXT=$(tail -c 60000 build.log)
+          jq -n --arg t "$TEXT" --arg sha "$GITHUB_SHA" \
+            '{name:"build-errors", head_sha:$sha, status:"completed", conclusion:"failure",
+              output:{title:"cargo build failed", summary:"compiler output (tail,60KB)", text:$t}}' > check.json
+          gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" --input check.json
       - uses: actions/upload-artifact@v4
         with:
           name: mirrornic
