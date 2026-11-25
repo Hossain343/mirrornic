@@ -143,6 +143,12 @@ GitHub Actions workflow `build-windows` produces a downloadable artifact named `
   "Hotspot Shield", …) are tagged `[VPN/virtual]` in the list and rejected if
   selected — the old `GetBestInterface(8.8.8.8)` heuristic followed the route
   table straight into the VPN's tunnel adapter.
+- The chosen exit NIC is then **live-validated**: a real locked TCP connect
+  (to `1.1.1.1:443` / `8.8.8.8:443`) must succeed through it before use. This
+  auto-skips NICs without a working gateway and self-calibrates the
+  `IP_UNICAST_IF` byte order (network order per MS docs, host-order fallback)
+  and whether the source-IP bind is safe — so the relay cannot silently fall
+  back onto the VPN path.
 - MirrorNIC's default route is installed with route metric `0` (fallback `1`,
   interface metric `0`, fallback `1`) so it outranks a VPN's default route.
 - TCP connections get a 15s connect timeout; UDP flows idle-timeout after 60s.

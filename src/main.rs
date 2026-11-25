@@ -140,7 +140,7 @@ impl eframe::App for App {
                 ui.add_space(10.0);
                 if on && !self.note.is_empty() {
                     ui.label(
-                        RichText::new(format!("exit \u{2192} {}", self.note))
+                        RichText::new(format!("exit -> {}", self.note))
                             .size(13.0)
                             .color(Color32::from_rgb(90, 150, 230)),
                     );
