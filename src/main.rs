@@ -2,8 +2,6 @@
 mod engine;
 
 use eframe::egui::{self, Color32, RichText};
-use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{self, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -26,6 +24,7 @@ struct App {
     engine: Option<engine::Engine>,
     starting: Option<Starting>,
     result: Arc<Mutex<String>>,
+    note: String,
 }
 
 fn clean_name(s: &str) -> String {
@@ -39,26 +38,6 @@ fn clean_name(s: &str) -> String {
 fn clean_route(s: &str) -> String {
     let c: String = s.chars().filter(|c| c.is_ascii_digit() || *c == '.' || *c == '/' || *c == ',').collect();
     if c.is_empty() { "0.0.0.0/0".into() } else { c }
-}
-
-fn try_ip(host: &str) -> Option<String> {
-    let addr = (host, 80).to_socket_addrs().ok()?.find(|a| a.is_ipv4())?;
-    let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(5)).ok()?;
-    s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
-    write!(s, "GET / HTTP/1.0\r\nHost: {host}\r\nUser-Agent: curl/8\r\nConnection: close\r\n\r\n").ok()?;
-    let mut buf = String::new();
-    s.read_to_string(&mut buf).ok()?;
-    let body = buf.split("\r\n\r\n").nth(1)?.trim();
-    body.parse::<std::net::Ipv4Addr>().ok().map(|i| i.to_string())
-}
-
-fn public_ip() -> String {
-    for h in ["api.ipify.org", "checkip.amazonaws.com", "icanhazip.com"] {
-        if let Some(ip) = try_ip(h) {
-            return ip;
-        }
-    }
-    "ERROR".into()
 }
 
 impl App {
@@ -80,6 +59,7 @@ impl eframe::App for App {
         let polled = self.starting.as_ref().map(|rx| rx.try_recv());
         match polled {
             Some(Ok(Ok(e))) => {
+                self.note = e.note.clone();
                 self.engine = Some(e);
                 self.starting = None;
             }
@@ -110,6 +90,7 @@ impl eframe::App for App {
                 if ui.add(b).clicked() && !busy {
                     if on {
                         self.engine = None;
+                        self.note.clear();
                     } else {
                         self.applied = self.cfg();
                         self.start();
@@ -157,19 +138,28 @@ impl eframe::App for App {
                     }
                 }
                 ui.add_space(10.0);
+                if on && !self.note.is_empty() {
+                    ui.label(
+                        RichText::new(format!("exit -> {}", self.note))
+                            .size(13.0)
+                            .color(Color32::from_rgb(90, 150, 230)),
+                    );
+                    ui.add_space(4.0);
+                }
                 if ui.button("Test").clicked() {
                     let r = self.result.clone();
                     let c = ctx.clone();
+                    let sel = self.cfg().exit;
                     *r.lock().unwrap() = "...".into();
                     std::thread::spawn(move || {
-                        let ip = public_ip();
+                        let ip = engine::probe_report(sel);
                         *r.lock().unwrap() = ip;
                         c.request_repaint();
                     });
                 }
                 ui.add_space(6.0);
                 let t = self.result.lock().unwrap().clone();
-                ui.label(RichText::new(t).size(20.0));
+                ui.label(RichText::new(t).size(15.0));
             });
         });
     }
@@ -178,7 +168,7 @@ impl eframe::App for App {
 fn main() -> eframe::Result {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([320.0, 470.0])
+            .with_inner_size([330.0, 520.0])
             .with_resizable(false),
         ..Default::default()
     };
@@ -196,6 +186,7 @@ fn main() -> eframe::Result {
                 engine: None,
                 starting: None,
                 result: Arc::new(Mutex::new(String::new())),
+                note: String::new(),
             }))
         }),
     )
